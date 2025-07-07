@@ -16,10 +16,62 @@ folders = [
 	"Saved"
 ]
 
+'''
+	is_process_running function
+	@note : Check if a process with process_name is currently running.
+	@param process_name : Target process name.
+	@return Process from psutil or None if no process found.
+'''
 def is_process_running( process_name ) :
-	for process in psutil.process_iter( ['name'] ):
-		if process.info[ 'name' ].lower( ) == process_name.lower( ) :
-			return True
+	for process in psutil.process_iter( [ 'name', 'cmdline' ] ):
+		try : 
+			if process_name.lower( ) not in process.info[ 'name' ].lower( ) :
+				continue
+			
+			return process
+		except ( psutil.NoSuchProcess, psutil.AccessDenied ) :
+			continue
+
+	return None
+
+'''
+	is_running_vs_solution function
+	@note : Check if the current project solution is opened in visual studio.
+	@param uproject_path : Target uproject path.
+	@return True when visual studio is running the solution.
+'''
+def is_running_vs_solution( uproject_path ) :
+	process = is_process_running( 'devenv.exe' )
+
+	if process is not None :
+		args = process.info.get( 'cmdline', [ ] )
+
+		# TODO : Specific check, for now consider all vs instance to run the solution.
+
+		print( '\033[31m> Please close visual studio before executing the script.\033[0m' )
+
+		return True
+
+	return False
+
+'''
+	is_running_ue_solution function
+	@note : Check if the current project solution is opened in unreal engine editor.
+	@param uproject_path : Target uproject path.
+	@return True when unreal engine editor is running the solution.
+'''
+def is_running_ue_solution( uproject_path ) :
+	solution = os.path.basename( uproject_path ).lower( )
+
+	for editor in [ 'UE4Editor.exe', 'UnrealEditor.exe' ] :
+		process = is_process_running( editor )
+
+		if process is not None :
+			for argument in process.info.get( 'cmdline', [ ] ) :
+				if solution in argument.lower( ) :
+					print( '\033[31m> Please close unreal editor before executing the script.\033[0m' )
+
+					return True
 
 	return False
 
@@ -101,6 +153,8 @@ def create_project( engine_path, project_path ) :
 
 		sys.exit( 1 )
 
+	print( '> Launch Project Build :' )
+
 	result = subprocess.run([ 'dotnet', build_script, '-ProjectFiles', f'-Project={project_path}', '-Game', '-Engine', '-Progress' ], shell=True )
 
 	if result.returncode == 0 :
@@ -122,23 +176,15 @@ def main( ) :
 
 	args = parser.parse_args( )
 
-	engine_path = resolve_engine_path( args.engine )
+	engine_path  = resolve_engine_path( args.engine )
 	project_path = os.path.abspath( args.project )
 
-	if is_process_running( 'devenv.exe' ) :
-		print( '\033[31m> Please close visual studio before executing the script.\033[0m' )
+	if not os.path.isfile( project_path ) :
+		print( "\033[31m> Target uproject path isn't valid\033[0m" )
 
 		sys.exit( 1 )
 
-	for editor in [ 'UE4Editor.exe', 'UnrealEditor.exe' ] :
-		if is_process_running( editor ) :
-			print( '\033[31m> Please close unreal editor before executing the script.\033[0m' )
-
-			sys.exit( 1 )
-
-	if not os.path.isfile( project_path ) :
-		print( "\033[31m> Target project path isn't valid\033[0m" )
-
+	if is_running_vs_solution( project_path ) or is_running_ue_solution( project_path ) :
 		sys.exit( 1 )
 
 	clean_project( project_path )
